@@ -2,14 +2,17 @@
 <html>
 <head>
   <title>Geometric Nightmare</title>
+  <meta http-equiv="Content-Security-Policy" 
+        content="default-src 'self' https:; script-src 'self' 'unsafe-eval' https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; connect-src 'self' https:;">
+  
   <style>
     body { margin:0; overflow:hidden; background:black; }
     #overlay {
       position:absolute; top:0; left:0; right:0; bottom:0;
       display:flex; align-items:center; justify-content:center;
-      color:white; font-family:sans-serif; font-size:2.2rem;
+      color:white; font-family:sans-serif; font-size:2.5rem;
       background:rgba(0,0,0,0.95); cursor:pointer; z-index:100;
-      text-align:center; letter-spacing:2px;
+      text-align:center;
     }
   </style>
 </head>
@@ -20,14 +23,14 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js';
 import { PointerLockControls } from 'https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/controls/PointerLockControls.js';
 
-let scene = new THREE.Scene();
+const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
-scene.fog = new THREE.Fog(0x0a0a0a, 8, 140);
+scene.fog = new THREE.Fog(0x0a0a0a, 10, 150);
 
-let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.y = 1.6;
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.y = 1.8;
 
-let renderer = new THREE.WebGLRenderer({ antialias: false });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 document.body.appendChild(renderer.domElement);
@@ -43,106 +46,61 @@ overlay.addEventListener("click", () => {
 });
 
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement === null) {
-    overlay.style.display = "flex";
-  }
+  if (!document.pointerLockElement) overlay.style.display = "flex";
 });
 
-// Lights
-scene.add(new THREE.HemisphereLight(0xaaaaaa, 0x222222, 0.9));
+// Basic scene
+scene.add(new THREE.HemisphereLight(0xaaaaaa, 0x222222, 1));
 
-// Grid
-const grid = new THREE.GridHelper(2000, 200, 0x444444, 0x222222);
-grid.position.y = -0.1;
+const grid = new THREE.GridHelper(2000, 100, 0x444444, 0x222222);
 scene.add(grid);
 
-// Objects
 const objects = [];
-function spawnObjects(count = 70) {
+function spawnObjects(n = 60) {
   objects.forEach(o => scene.remove(o));
   objects.length = 0;
-  for (let i = 0; i < count; i++) {
-    const geo = Math.random() < 0.5 
-      ? new THREE.SphereGeometry(0.6 + Math.random(), 8, 8)
-      : new THREE.BoxGeometry(1.5, 1.5, 1.5);
-
+  for (let i = 0; i < n; i++) {
+    const geo = Math.random() > 0.5 ? 
+      new THREE.SphereGeometry(0.5 + Math.random() * 1.5, 8, 8) :
+      new THREE.BoxGeometry(1 + Math.random() * 2, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    
     const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ wireframe: true, color: 0xffffff }));
-    mesh.position.set(
-      (Math.random()-0.5)*90,
-      5 + Math.random()*35,
-      -40 - Math.random()*250
-    );
-    mesh.userData = { baseScale: 1 + Math.random()*2, offset: i };
+    mesh.position.set((Math.random()-0.5)*100, Math.random()*40, -Math.random()*300 - 30);
+    mesh.userData = { base: 1 + Math.random() * 2 };
     scene.add(mesh);
     objects.push(mesh);
   }
 }
 spawnObjects();
 
-// Particles
-const particleCount = 3000;
-const positions = new Float32Array(particleCount * 3);
-for (let i = 0; i < particleCount * 3; i += 3) {
-  positions[i]     = (Math.random() - 0.5) * 300;
-  positions[i + 1] = (Math.random() - 0.5) * 200;
-  positions[i + 2] = -Math.random() * 600;
-}
-const pointField = new THREE.Points(
-  new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(positions, 3)),
-  new THREE.PointsMaterial({ size: 0.4, color: 0x888888 })
-);
-scene.add(pointField);
-
-// State + Animation
-let time = 0, dread = 0, currentState = 0, stateTime = 0;
-function pickNextState() { currentState = Math.floor(Math.random() * 4); }
-
-const raycaster = new THREE.Raycaster();
+let time = 0, dread = 0, state = 0;
 
 function animate() {
   requestAnimationFrame(animate);
   time += 0.016;
-  stateTime += 0.016;
-  dread = Math.min(dread + 0.0004, 1);
+  dread = Math.min(dread + 0.00035, 1);
 
-  if (stateTime > 11) {
-    stateTime = 0;
-    pickNextState();
-    if (Math.random() < 0.4) spawnObjects(60);
-  }
+  if (Math.random() < 0.008) state = (state + 1) % 4;
 
-  controls.moveForward(0.08 * (1 - dread * 0.7));
+  controls.moveForward(0.07 * (1 - dread * 0.65));
 
-  objects.forEach((o, i) => {
-    let scale = o.userData.baseScale;
-    if (currentState === 1) scale *= 3 + Math.sin(time * 6 + i) * 2;   // pulse
-    if (currentState === 3) scale *= 0.5;                               // crush
-
-    o.scale.setScalar(THREE.MathUtils.lerp(o.scale.x, scale, 0.12));
-    o.rotation.y += 0.003 + dread * 0.008;
-    o.position.x += Math.sin(time * 4 + i) * 0.015 * dread;
+  objects.forEach((obj, i) => {
+    let s = obj.userData.base;
+    if (state === 1) s *= 2.5 + Math.sin(time * 5 + i) * 1.5;
+    if (state === 3) s *= 0.4;
+    
+    obj.scale.setScalar(THREE.MathUtils.lerp(obj.scale.x, s, 0.1));
+    obj.rotation.y += 0.004 + dread * 0.01;
   });
 
-  // Gaze reaction
-  raycaster.setFromCamera({x:0, y:0}, camera);
-  const hit = raycaster.intersectObjects(objects)[0];
-  objects.forEach(o => {
-    o.material.color.set(hit && hit.object === o ? 0xff00ff : 0xffffff);
-  });
-
-  camera.fov = 75 + Math.sin(time*2) * (8 + dread*25);
+  camera.fov = 75 + Math.sin(time * 1.8) * (10 + dread * 30);
   camera.updateProjectionMatrix();
-
-  pointField.position.z += 1.5 + dread * 3;
-  if (pointField.position.z > 100) pointField.position.z = -500;
 
   renderer.render(scene, camera);
 }
 
-pickNextState();
 animate();
 
-// Resize
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
