@@ -19,9 +19,6 @@
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js';
 import { PointerLockControls } from 'https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/controls/PointerLockControls.js';
-import { EffectComposer } from 'https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/postprocessing/RenderPass.js';
-import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/postprocessing/ShaderPass.js';
 
 let scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
@@ -32,124 +29,50 @@ camera.position.y = 1.6;
 
 let renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 document.body.appendChild(renderer.domElement);
-
-// Post-processing
-const composer = new EffectComposer(renderer);
-const renderPass = new RenderPass(scene, camera);
-composer.addPass(renderPass);
-
-// =======================
-// DISTORTION SHADER
-// =======================
-const distortionShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    time: { value: 0 },
-    dread: { value: 0 },
-    resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform sampler2D tDiffuse;
-    uniform float time;
-    uniform float dread;
-    uniform vec2 resolution;
-    varying vec2 vUv;
-
-    // Simple noise
-    float noise(vec2 p) {
-      return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-    }
-
-    void main() {
-      vec2 uv = vUv;
-      float t = time * 1.2;
-      float d = dread * 0.8;
-
-      // Wave distortion
-      vec2 wave = vec2(
-        sin(uv.y * 20.0 + t) * 0.008 * d,
-        cos(uv.x * 15.0 + t * 1.3) * 0.006 * d
-      );
-      uv += wave;
-
-      // Chromatic aberration
-      float caStrength = 0.012 * d;
-      vec4 r = texture2D(tDiffuse, uv + vec2(caStrength, 0.0));
-      vec4 g = texture2D(tDiffuse, uv);
-      vec4 b = texture2D(tDiffuse, uv - vec2(caStrength * 0.8, 0.0));
-
-      vec3 color = vec3(r.r, g.g, b.b);
-
-      // RGB Shift / Glitch
-      float glitch = step(0.98, noise(vec2(uv.y * 40.0, t))) * d * 0.03;
-      color.r += texture2D(tDiffuse, uv + vec2(glitch, 0.0)).r * 0.3;
-      color.b += texture2D(tDiffuse, uv - vec2(glitch * 0.7, 0.0)).b * 0.3;
-
-      // Noise overlay
-      float n = noise(uv * 400.0 + t * 10.0) * 0.08 * d;
-      color += n;
-
-      // Vignette
-      vec2 center = uv - 0.5;
-      float vignette = 1.0 - dot(center, center) * (1.8 + d * 2.5);
-      color *= vignette;
-
-      // Scanlines
-      color *= 0.95 + 0.05 * sin(uv.y * 800.0 + t * 8.0);
-
-      gl_FragColor = vec4(color, 1.0);
-    }
-  `
-};
-
-const distortionPass = new ShaderPass(distortionShader);
-composer.addPass(distortionPass);
 
 const controls = new PointerLockControls(camera, document.body);
 scene.add(controls.getObject());
 
-const listener = new THREE.AudioListener();
-camera.add(listener);
+const overlay = document.getElementById("overlay");
 
-document.getElementById("overlay").addEventListener("click", async () => {
-  await document.body.requestPointerLock();
-  document.getElementById("overlay").style.display = "none";
+overlay.addEventListener("click", () => {
+  controls.lock();
+  overlay.style.display = "none";
 });
 
-// Lights + Geometry (same as before, slightly cleaned)
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === null) {
+    overlay.style.display = "flex";
+  }
+});
+
+// Lights
 scene.add(new THREE.HemisphereLight(0xaaaaaa, 0x222222, 0.9));
 
+// Grid
 const grid = new THREE.GridHelper(2000, 200, 0x444444, 0x222222);
 grid.position.y = -0.1;
 scene.add(grid);
 
+// Objects
 const objects = [];
 function spawnObjects(count = 70) {
   objects.forEach(o => scene.remove(o));
   objects.length = 0;
   for (let i = 0; i < count; i++) {
-    let geo = Math.random() < 0.5 
-      ? new THREE.SphereGeometry(0.5 + Math.random() * 1.2, 7, 7)
-      : new THREE.BoxGeometry(1.2, 1.2, 1.2);
+    const geo = Math.random() < 0.5 
+      ? new THREE.SphereGeometry(0.6 + Math.random(), 8, 8)
+      : new THREE.BoxGeometry(1.5, 1.5, 1.5);
 
-    const mat = new THREE.MeshBasicMaterial({ wireframe: true, color: 0xffffff });
-    const mesh = new THREE.Mesh(geo, mat);
-    
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ wireframe: true, color: 0xffffff }));
     mesh.position.set(
       (Math.random()-0.5)*90,
-      3 + Math.random()*35,
-      -30 - Math.random()*280
+      5 + Math.random()*35,
+      -40 - Math.random()*250
     );
-    mesh.userData = { baseScale: 0.8 + Math.random()*2.5, offset: i };
+    mesh.userData = { baseScale: 1 + Math.random()*2, offset: i };
     scene.add(mesh);
     objects.push(mesh);
   }
@@ -157,37 +80,22 @@ function spawnObjects(count = 70) {
 spawnObjects();
 
 // Particles
-const particleCount = 3500;
-const posArray = new Float32Array(particleCount * 3);
+const particleCount = 3000;
+const positions = new Float32Array(particleCount * 3);
 for (let i = 0; i < particleCount * 3; i += 3) {
-  posArray[i]     = (Math.random() - 0.5) * 320;
-  posArray[i + 1] = (Math.random() - 0.5) * 220;
-  posArray[i + 2] = -Math.random() * 600;
+  positions[i]     = (Math.random() - 0.5) * 300;
+  positions[i + 1] = (Math.random() - 0.5) * 200;
+  positions[i + 2] = -Math.random() * 600;
 }
-const particlesGeo = new THREE.BufferGeometry();
-particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-const pointField = new THREE.Points(particlesGeo, new THREE.PointsMaterial({size: 0.35, color: 0x999999}));
+const pointField = new THREE.Points(
+  new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(positions, 3)),
+  new THREE.PointsMaterial({ size: 0.4, color: 0x888888 })
+);
 scene.add(pointField);
 
-// Audio (kept simple)
-let hum, staticSound;
-const audioLoader = new THREE.AudioLoader();
-try {
-  hum = new THREE.Audio(listener);
-  staticSound = new THREE.Audio(listener);
-  audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b4c1c9c63.mp3', b => { hum.setBuffer(b); hum.setLoop(true); hum.setVolume(0.25); hum.play(); });
-  audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/10/audio_2b3c1df0a7.mp3', b => { staticSound.setBuffer(b); staticSound.setLoop(true); staticSound.setVolume(0.07); staticSound.play(); });
-} catch(e){}
-
-// State
-let time = 0;
-let dread = 0;
-let currentState = 0;
-let nextState = 1;
-let stateTime = 0;
-let transition = 0;
-
-function pickNextState() { nextState = Math.floor(Math.random() * 4); }
+// State + Animation
+let time = 0, dread = 0, currentState = 0, stateTime = 0;
+function pickNextState() { currentState = Math.floor(Math.random() * 4); }
 
 const raycaster = new THREE.Raycaster();
 
@@ -195,280 +103,38 @@ function animate() {
   requestAnimationFrame(animate);
   time += 0.016;
   stateTime += 0.016;
-  dread = Math.min(dread + 0.00035, 1.0);
+  dread = Math.min(dread + 0.0004, 1);
 
-  // State transition
-  if (stateTime > 10 + Math.random() * 12) {
-    transition = Math.min(transition + 0.015, 1.0);
-  }
-  if (transition >= 1.0) {
-    currentState = nextState;
-    pickNextState();
+  if (stateTime > 11) {
     stateTime = 0;
-    transition = 0;
-    if (Math.random() < 0.35) spawnObjects(55);
+    pickNextState();
+    if (Math.random() < 0.4) spawnObjects(60);
   }
 
-  const blend = transition;
-  const speed = 0.085 * (1 - dread * 0.75);
-  controls.moveForward(speed);
+  controls.moveForward(0.08 * (1 - dread * 0.7));
 
-  // Object animation
   objects.forEach((o, i) => {
-    const data = o.userData;
-    let targetScale = data.baseScale;
+    let scale = o.userData.baseScale;
+    if (currentState === 1) scale *= 3 + Math.sin(time * 6 + i) * 2;   // pulse
+    if (currentState === 3) scale *= 0.5;                               // crush
 
-    if (currentState === 1) targetScale *= 2.8 + Math.sin(time * 5 + i) * 1.8;
-    if (currentState === 3) targetScale *= 0.6;
-
-    o.scale.setScalar(THREE.MathUtils.lerp(o.scale.x, targetScale, 0.1));
-    o.rotation.y += 0.002 + dread * 0.006;
-    o.position.x += Math.sin(time * 3 + i) * (0.012 * dread);
+    o.scale.setScalar(THREE.MathUtils.lerp(o.scale.x, scale, 0.12));
+    o.rotation.y += 0.003 + dread * 0.008;
+    o.position.x += Math.sin(time * 4 + i) * 0.015 * dread;
   });
 
-  // Gaze highlight
+  // Gaze reaction
   raycaster.setFromCamera({x:0, y:0}, camera);
-  const hits = raycaster.intersectObjects(objects);
+  const hit = raycaster.intersectObjects(objects)[0];
   objects.forEach(o => {
-    o.material.color.set(hits.length && hits[0].object === o ? 0xff00ff : 0xffffff);
+    o.material.color.set(hit && hit.object === o ? 0xff00ff : 0xffffff);
   });
 
-  // Camera breathing
-  camera.fov = 72 + Math.sin(time * 2) * (6 + dread * 22);
+  camera.fov = 75 + Math.sin(time*2) * (8 + dread*25);
   camera.updateProjectionMatrix();
 
-  // Particles
-  pointField.position.z += 1.2 + dread * 2.8;
+  pointField.position.z += 1.5 + dread * 3;
   if (pointField.position.z > 100) pointField.position.z = -500;
-
-  // Update shader
-  distortionPass.uniforms.time.value = time;
-  distortionPass.uniforms.dread.value = dread;
-
-  composer.render();
-}
-
-pickNextState();
-animate();
-
-// Resize handler
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
-  distortionPass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
-});
-</script>
-</body>
-</html>
-// =======================
-// CONTROLS + CLICK FIX
-// =======================
-let controls = new PointerLockControls(camera, document.body);
-scene.add(controls.getObject());
-
-let listener = new THREE.AudioListener();
-camera.add(listener);
-
-document.getElementById("overlay").addEventListener("click", async () => {
-  await document.body.requestPointerLock();
-
-  if (listener.context.state === 'suspended') {
-    await listener.context.resume();
-  }
-
-  document.getElementById("overlay").style.display = "none";
-});
-
-// =======================
-// LIGHT
-// =======================
-scene.add(new THREE.HemisphereLight(0xffffff, 0x222222));
-
-// =======================
-// GEOMETRY
-// =======================
-let grid = new THREE.GridHelper(1000, 200, 0xffffff, 0x444444);
-scene.add(grid);
-
-let objects = [];
-
-function spawnObjects(count=60) {
-  for (let i = 0; i < count; i++) {
-    let geoTypes = [
-      new THREE.SphereGeometry(0.5,8,8),
-      new THREE.BoxGeometry(1,1,1),
-      new THREE.PlaneGeometry(2,2)
-    ];
-
-    let geo = geoTypes[Math.floor(Math.random()*geoTypes.length)];
-
-    let mat = new THREE.MeshBasicMaterial({
-      wireframe:true,
-      color:0xffffff
-    });
-
-    let mesh = new THREE.Mesh(geo, mat);
-
-    mesh.position.set(
-      (Math.random()-0.5)*50,
-      (Math.random()-0.5)*20,
-      -Math.random()*200
-    );
-
-    scene.add(mesh);
-    objects.push(mesh);
-  }
-}
-
-spawnObjects();
-
-// =======================
-// DOT FIELD
-// =======================
-let particles = new THREE.BufferGeometry();
-let positions = [];
-
-for (let i=0;i<2000;i++){
-  positions.push(
-    (Math.random()-0.5)*200,
-    (Math.random()-0.5)*200,
-    -Math.random()*400
-  );
-}
-
-particles.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
-let pointField = new THREE.Points(particles, new THREE.PointsMaterial({size:0.5}));
-scene.add(pointField);
-
-// =======================
-// AUDIO
-// =======================
-let hum = new THREE.Audio(listener);
-let staticSound = new THREE.Audio(listener);
-let audioLoader = new THREE.AudioLoader();
-
-audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b4c1c9c63.mp3', b=>{
-  hum.setBuffer(b); hum.setLoop(true); hum.setVolume(0.2); hum.play();
-});
-
-audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/10/audio_2b3c1df0a7.mp3', b=>{
-  staticSound.setBuffer(b); staticSound.setLoop(true); staticSound.setVolume(0.05); staticSound.play();
-});
-
-// =======================
-// STATE SYSTEM (BLENDED)
-// =======================
-let time = 0;
-let dread = 0;
-
-let state = 0;
-let nextState = 1;
-let stateTime = 0;
-let transition = 0;
-
-function pickNextState(){
-  nextState = Math.floor(Math.random()*4);
-}
-
-// =======================
-// ANIMATION
-// =======================
-let raycaster = new THREE.Raycaster();
-
-function animate(){
-  requestAnimationFrame(animate);
-
-  time += 0.01;
-  stateTime += 0.01;
-  dread += 0.0005;
-
-  // state timing
-  if(stateTime > 10){
-    transition += 0.01;
-  }
-
-  if(transition >= 1){
-    state = nextState;
-    pickNextState();
-    stateTime = 0;
-    transition = 0;
-  }
-
-  // =======================
-  // MOTION (SLOW / STUCK)
-  // =======================
-  let speed = 0.06 * (1 - Math.min(dread,0.8));
-  controls.moveForward(speed);
-
-  // =======================
-  // STATE EFFECTS
-  // =======================
-  let blend = transition;
-
-  objects.forEach(o=>{
-
-    // STATE 0: VOID / LINES
-    let rotSnap = Math.round(o.rotation.x/(Math.PI/2))*(Math.PI/2);
-
-    // STATE 1: SCALE
-    let scale = Math.sin(time)*5+6;
-
-    // STATE 2: CONVERGENCE
-    let target = objects[0];
-
-    // STATE 3: PRESSURE
-    let pressureScale = o.scale.x * 0.99;
-
-    // BLEND ALL STATES
-    o.rotation.x = THREE.MathUtils.lerp(o.rotation.x, rotSnap, blend*0.02);
-    o.scale.setScalar(THREE.MathUtils.lerp(o.scale.x, scale, blend*0.02));
-
-    if(target){
-      o.position.lerp(target.position, blend*0.001);
-    }
-
-    o.scale.multiplyScalar(1 - blend*0.001);
-
-    // subtle drift
-    o.rotation.y += 0.002;
-  });
-
-  // =======================
-  // PERCEPTION
-  // =======================
-  raycaster.setFromCamera({x:0,y:0}, camera);
-  let intersects = raycaster.intersectObjects(objects);
-
-  objects.forEach(o=>{
-    if(intersects.length && intersects[0].object===o){
-      o.material.color.set(0xffffff);
-    } else {
-      o.material.color.set(0xff0000);
-      o.position.x += Math.sin(time + o.id)*0.002;
-    }
-  });
-
-  // FOV distortion
-  camera.fov = 75 + Math.sin(time)*10 + dread*20;
-  camera.updateProjectionMatrix();
-
-  // background drift
-  pointField.position.z += 0.2;
-
-  // =======================
-  // SOUND + SILENCE CUTS
-  // =======================
-  let silence = Math.random() < 0.002;
-
-  if(silence){
-    hum.setVolume(0);
-    staticSound.setVolume(0);
-  } else {
-    hum.setVolume(0.2 + dread*0.5);
-    staticSound.setVolume(0.02 + Math.abs(Math.sin(time))*0.08);
-  }
 
   renderer.render(scene, camera);
 }
@@ -476,13 +142,12 @@ function animate(){
 pickNextState();
 animate();
 
-// resize
-window.addEventListener('resize', ()=>{
-  camera.aspect = innerWidth/innerHeight;
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
-
 </body>
 </html>
