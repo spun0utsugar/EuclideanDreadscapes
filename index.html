@@ -20,6 +20,9 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js';
 import { PointerLockControls } from 'https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/controls/PointerLockControls.js';
 
+// =======================
+// BASIC SETUP
+// =======================
 let scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 scene.fog = new THREE.Fog(0x000000, 5, 80);
@@ -29,35 +32,45 @@ camera.position.y = 1;
 
 let renderer = new THREE.WebGLRenderer();
 renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio * 0.75);
 document.body.appendChild(renderer.domElement);
 
-// CONTROLS
+// =======================
+// CONTROLS + CLICK FIX
+// =======================
 let controls = new PointerLockControls(camera, document.body);
-document.getElementById("overlay").onclick = () => {
-  controls.lock();
-  document.getElementById("overlay").style.display = "none";
-};
 scene.add(controls.getObject());
 
+let listener = new THREE.AudioListener();
+camera.add(listener);
+
+document.getElementById("overlay").addEventListener("click", async () => {
+  await document.body.requestPointerLock();
+
+  if (listener.context.state === 'suspended') {
+    await listener.context.resume();
+  }
+
+  document.getElementById("overlay").style.display = "none";
+});
+
+// =======================
 // LIGHT
+// =======================
 scene.add(new THREE.HemisphereLight(0xffffff, 0x222222));
 
 // =======================
-// GEOMETRY LAYER
+// GEOMETRY
 // =======================
-
-// Infinite grid
 let grid = new THREE.GridHelper(1000, 200, 0xffffff, 0x444444);
 scene.add(grid);
 
-// floating objects
 let objects = [];
 
-function spawnObjects(count = 60) {
+function spawnObjects(count=60) {
   for (let i = 0; i < count; i++) {
-
     let geoTypes = [
-      new THREE.SphereGeometry(0.5, 8, 8),
+      new THREE.SphereGeometry(0.5,8,8),
       new THREE.BoxGeometry(1,1,1),
       new THREE.PlaneGeometry(2,2)
     ];
@@ -65,8 +78,8 @@ function spawnObjects(count = 60) {
     let geo = geoTypes[Math.floor(Math.random()*geoTypes.length)];
 
     let mat = new THREE.MeshBasicMaterial({
-      wireframe: true,
-      color: 0xffffff
+      wireframe:true,
+      color:0xffffff
     });
 
     let mesh = new THREE.Mesh(geo, mat);
@@ -85,13 +98,12 @@ function spawnObjects(count = 60) {
 spawnObjects();
 
 // =======================
-// DOT / STATIC FIELD
+// DOT FIELD
 // =======================
-
 let particles = new THREE.BufferGeometry();
 let positions = [];
 
-for (let i = 0; i < 2000; i++) {
+for (let i=0;i<2000;i++){
   positions.push(
     (Math.random()-0.5)*200,
     (Math.random()-0.5)*200,
@@ -99,119 +111,146 @@ for (let i = 0; i < 2000; i++) {
   );
 }
 
-particles.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-
-let particleMat = new THREE.PointsMaterial({ size: 0.5 });
-let pointField = new THREE.Points(particles, particleMat);
+particles.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+let pointField = new THREE.Points(particles, new THREE.PointsMaterial({size:0.5}));
 scene.add(pointField);
 
 // =======================
-// AUDIO LAYER
+// AUDIO
 // =======================
-
-let listener = new THREE.AudioListener();
-camera.add(listener);
-
 let hum = new THREE.Audio(listener);
 let staticSound = new THREE.Audio(listener);
-
 let audioLoader = new THREE.AudioLoader();
 
-// low hum
-audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b4c1c9c63.mp3', buffer => {
-  hum.setBuffer(buffer);
-  hum.setLoop(true);
-  hum.setVolume(0.2);
-  hum.play();
+audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/15/audio_5b4c1c9c63.mp3', b=>{
+  hum.setBuffer(b); hum.setLoop(true); hum.setVolume(0.2); hum.play();
 });
 
-// static noise
-audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/10/audio_2b3c1df0a7.mp3', buffer => {
-  staticSound.setBuffer(buffer);
-  staticSound.setLoop(true);
-  staticSound.setVolume(0.05);
-  staticSound.play();
+audioLoader.load('https://cdn.pixabay.com/download/audio/2022/03/10/audio_2b3c1df0a7.mp3', b=>{
+  staticSound.setBuffer(b); staticSound.setLoop(true); staticSound.setVolume(0.05); staticSound.play();
 });
 
 // =======================
-// PERCEPTION SYSTEM
+// STATE SYSTEM (BLENDED)
 // =======================
-
-let raycaster = new THREE.Raycaster();
-let dread = 0;
 let time = 0;
+let dread = 0;
+
+let state = 0;
+let nextState = 1;
+let stateTime = 0;
+let transition = 0;
+
+function pickNextState(){
+  nextState = Math.floor(Math.random()*4);
+}
 
 // =======================
-// ANIMATION LOOP
+// ANIMATION
 // =======================
+let raycaster = new THREE.Raycaster();
 
-function animate() {
+function animate(){
   requestAnimationFrame(animate);
 
   time += 0.01;
+  stateTime += 0.01;
   dread += 0.0005;
 
-  // =======================
-  // MOTION LAYER
-  // =======================
+  // state timing
+  if(stateTime > 10){
+    transition += 0.01;
+  }
 
-  controls.moveForward(0.06); // infinite pull
-
-  let scale = Math.sin(time)*2 + 3;
-
-  objects.forEach(o => {
-    o.scale.set(scale, scale, scale);
-
-    // slow rotation drift
-    o.rotation.x += 0.002;
-    o.rotation.y += 0.002;
-  });
-
-  // recursive duplication (light version)
-  if (Math.random() < 0.01 && objects.length < 120) {
-    spawnObjects(5);
+  if(transition >= 1){
+    state = nextState;
+    pickNextState();
+    stateTime = 0;
+    transition = 0;
   }
 
   // =======================
-  // PERCEPTION LAYER
+  // MOTION (SLOW / STUCK)
   // =======================
+  let speed = 0.06 * (1 - Math.min(dread,0.8));
+  controls.moveForward(speed);
 
-  raycaster.setFromCamera({x:0, y:0}, camera);
+  // =======================
+  // STATE EFFECTS
+  // =======================
+  let blend = transition;
+
+  objects.forEach(o=>{
+
+    // STATE 0: VOID / LINES
+    let rotSnap = Math.round(o.rotation.x/(Math.PI/2))*(Math.PI/2);
+
+    // STATE 1: SCALE
+    let scale = Math.sin(time)*5+6;
+
+    // STATE 2: CONVERGENCE
+    let target = objects[0];
+
+    // STATE 3: PRESSURE
+    let pressureScale = o.scale.x * 0.99;
+
+    // BLEND ALL STATES
+    o.rotation.x = THREE.MathUtils.lerp(o.rotation.x, rotSnap, blend*0.02);
+    o.scale.setScalar(THREE.MathUtils.lerp(o.scale.x, scale, blend*0.02));
+
+    if(target){
+      o.position.lerp(target.position, blend*0.001);
+    }
+
+    o.scale.multiplyScalar(1 - blend*0.001);
+
+    // subtle drift
+    o.rotation.y += 0.002;
+  });
+
+  // =======================
+  // PERCEPTION
+  // =======================
+  raycaster.setFromCamera({x:0,y:0}, camera);
   let intersects = raycaster.intersectObjects(objects);
 
-  objects.forEach(o => {
-    if (intersects.length && intersects[0].object === o) {
+  objects.forEach(o=>{
+    if(intersects.length && intersects[0].object===o){
       o.material.color.set(0xffffff);
     } else {
       o.material.color.set(0xff0000);
-
-      // instability when not looked at
-      o.position.x += (Math.random()-0.5)*0.05;
-      o.position.y += (Math.random()-0.5)*0.05;
+      o.position.x += Math.sin(time + o.id)*0.002;
     }
   });
 
-  // FOV distortion (distance lies)
+  // FOV distortion
   camera.fov = 75 + Math.sin(time)*10 + dread*20;
   camera.updateProjectionMatrix();
 
-  // objects becoming background (depth illusion)
+  // background drift
   pointField.position.z += 0.2;
 
   // =======================
-  // SOUND REACTIVITY
+  // SOUND + SILENCE CUTS
   // =======================
+  let silence = Math.random() < 0.002;
 
-  hum.setVolume(0.2 + dread);
-  staticSound.setVolume(0.05 + Math.abs(Math.sin(time))*0.1);
+  if(silence){
+    hum.setVolume(0);
+    staticSound.setVolume(0);
+  } else {
+    hum.setVolume(0.2 + dread*0.5);
+    staticSound.setVolume(0.02 + Math.abs(Math.sin(time))*0.08);
+  }
 
   renderer.render(scene, camera);
 }
 
+pickNextState();
 animate();
 
-// resize fix
-window.addEventListener('resize', () => {
+// resize
+window.addEventListener('resize', ()=>{
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
